@@ -27,7 +27,7 @@ snd_pcm_t* init_audio_device() {
     int dir;
     
     // Open the default audio device for playback
-    rc = snd_pcm_open(&handle, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
+    rc = snd_pcm_open(&handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
     if (rc < 0) {
         fprintf(stderr, "Error opening PCM device: %s\n", snd_strerror(rc));
         return NULL;
@@ -39,6 +39,11 @@ snd_pcm_t* init_audio_device() {
     snd_pcm_hw_params_set_format(handle, params, SND_PCM_FORMAT_S16_LE);
     snd_pcm_hw_params_set_channels(handle, params, CHANNELS);
     snd_pcm_hw_params_set_rate_near(handle, params, &val, &dir);
+
+    snd_pcm_uframes_t buffer_frames = BUFFER_SIZE * 4;
+    snd_pcm_uframes_t period_frames = BUFFER_SIZE;
+    snd_pcm_hw_params_set_buffer_size_near(handle, params, &buffer_frames);
+    snd_pcm_hw_params_set_period_size_near(handle, params, &period_frames, &dir);
 
     // Set the hardware parameters
     rc = snd_pcm_hw_params(handle, params);
@@ -79,18 +84,16 @@ int main() {
         }
 
         // Write the chunk to the DMA buffer via the ALSA Kernel Driver
-        int rc = snd_pcm_writei(audio_handle, audio_buffer, BUFFER_SIZE);
+        snd_pcm_sframes_t rc = snd_pcm_writei(audio_handle, audio_buffer, BUFFER_SIZE);
         
         if (rc == -EPIPE) {
+            printf("[AUDIO] Underrun detected, resetting hardware channels...\n");
             // Recover transparently from an underrun buffer loop starvation
             snd_pcm_prepare(audio_handle);
         } else if (rc < 0 && rc != -EAGAIN) {
             // Handle any other critical hardware driver errors
             snd_pcm_prepare(audio_handle);
         }
-        
-        // Minor sleep to prevent pinning the CPU core to 100% while idling
-        // usleep(1000); 
     }
 
     /* Clean Up System Context */
