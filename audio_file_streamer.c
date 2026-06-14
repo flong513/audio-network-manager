@@ -1,6 +1,3 @@
-// Everytime a new track is loaded, the entire file is read into memory
-// Then the audio data is streamed to the audio hardware device
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,18 +11,19 @@
 
 #define BUFFER_SIZE 1024
 
-/* Playlist Configuration Matrix */
+/* 1. Master Playlist Array Matrix */
 const char *playlist[] = {
     "assets/test_song.wav",
-    "assets/test_song2.wav",   // Make sure to drop another WAV file here later!
+    "assets/test_song2.wav",
     "assets/test_song3.wav"
 };
 #define TOTAL_TRACKS (sizeof(playlist) / sizeof(playlist[0]))
 
-/* Global System States */
+/* 2. Global System Mixer States */
 int current_track_index = 0;
-float volume_scale = 0.5f; 
-int track_changed_flag = 0; // Signals the loop to tear down and reload assets
+int track_changed_flag = 1;   // Force initial system configuration reload
+float volume_scale = 0.5f;     // Master volume (0.0 to 1.0)
+float balance_panning = 0.0f;  // Spatial balance (-1.0 Full Left, 0.0 Center, 1.0 Full Right)
 
 typedef struct {
     char     chunk_id[4];
@@ -43,7 +41,7 @@ typedef struct {
     uint32_t subchunk2_size;
 } WavHeader;
 
-/* Linux Terminal Non-Blocking Controls */
+/* Linux Terminal Non-Blocking Configuration Matrix */
 struct termios orig_termios;
 void reset_terminal_mode() { tcsetattr(0, TCSANOW, &orig_termios); }
 void set_conio_mode() {
@@ -60,7 +58,7 @@ int kbhit() {
     return select(1, &fds, NULL, NULL, &tv);
 }
 
-/* ALSA Hardware Lifecycle Provisions */
+/* Dynamic Hardware Provisioning Handler */
 snd_pcm_t* init_audio_device(uint32_t sample_rate, uint16_t channels) {
     int rc; snd_pcm_t *handle; snd_pcm_hw_params_t *params;
     unsigned int val = sample_rate; int dir = 0;
@@ -91,30 +89,29 @@ int main() {
     snd_pcm_t *audio_handle = NULL;
     int16_t audio_buffer[BUFFER_SIZE * 2];
 
-    printf("=== Automotive Playlist Media Manager Engine ===\n");
-    printf("Controls: [n] Next Track, [p] Prev Track, [+] Vol Up, [-] Vol Down, [q] Quit\n\n");
+    printf("=== Combined Infotainment Mixer Core Engine ===\n");
+    printf("Controls:  [ n ] Next Track    [ p ] Prev Track\n");
+    printf("           [ [ ] Pan Left      [ ] ] Pan Right     [ \\ ] Reset Center\n");
+    printf("           [ + ] Vol Up        [ - ] Vol Down      [ q ] Quit System\n\n");
 
     set_conio_mode();
 
-    // Force initial load of track index 0
-    track_changed_flag = 1;
-
     while (1) {
-        /* Step 1: Handle Track Lifecycle Reload Transitions */
+        /* Part A: Handle Dynamic Track Transitions Lifecycle */
         if (track_changed_flag) {
             track_changed_flag = 0;
 
-            // Clear previous track infrastructure if currently allocated
+            // Safely deallocate current active hardware handles
             if (audio_handle) { snd_pcm_drain(audio_handle); snd_pcm_close(audio_handle); audio_handle = NULL; }
             if (wav_file) { fclose(wav_file); wav_file = NULL; }
 
-            printf("\r[SYSTEM] Loading track %d/%ld: %s...\n", current_track_index + 1, TOTAL_TRACKS, playlist[current_track_index]);
+            printf("\r[SYSTEM] Loading Index %d/%ld: %s...\n", current_track_index + 1, TOTAL_TRACKS, playlist[current_track_index]);
 
             wav_file = fopen(playlist[current_track_index], "rb");
             if (!wav_file) {
-                printf("[ERROR] Failed to open asset path file. Skipping to next...\n");
-                track_changed_flag = 1;
+                printf("[WARN] Missing file asset. Skipping to adjacent index...\n");
                 current_track_index = (current_track_index + 1) % TOTAL_TRACKS;
+                track_changed_flag = 1;
                 continue;
             }
 
@@ -124,46 +121,68 @@ int main() {
 
             audio_handle = init_audio_device(header.sample_rate, header.num_channels);
             if (!audio_handle) {
-                printf("[ERROR] Sound hardware reject configuration specs.\n");
+                printf("[FATAL] Driver layer allocation rejection.\n");
                 return 1;
             }
         }
 
-        /* Step 2: Handle Non-Blocking Keyboard Handoffs */
+        /* Part B: Capture Non-Blocking Multi-Input Matrix */
         if (kbhit()) {
             char ch = getchar();
             if (ch == 'n' || ch == 'N') {
-                current_track_index = (current_track_index + 1) % TOTAL_TRACKS; // Cycle forward wrap
+                current_track_index = (current_track_index + 1) % TOTAL_TRACKS;
                 track_changed_flag = 1;
             } else if (ch == 'p' || ch == 'P') {
-                current_track_index = (current_track_index - 1 + TOTAL_TRACKS) % TOTAL_TRACKS; // Cycle backward wrap
+                current_track_index = (current_track_index - 1 + TOTAL_TRACKS) % TOTAL_TRACKS;
                 track_changed_flag = 1;
+            } else if (ch == '[') {
+                balance_panning -= 0.1f; if (balance_panning < -1.0f) balance_panning = -1.0f;
+                printf("\r[MIXER] Panning: %.1f (Left)   | Vol: %.0f%%   ", balance_panning, volume_scale * 100.0f); fflush(stdout);
+            } else if (ch == ']') {
+                balance_panning += 0.1f; if (balance_panning > 1.0f) balance_panning = 1.0f;
+                printf("\r[MIXER] Panning: %.1f (Right)  | Vol: %.0f%%   ", balance_panning, volume_scale * 100.0f); fflush(stdout);
+            } else if (ch == '\\') {
+                balance_panning = 0.0f;
+                printf("\r[MIXER] Panning: 0.0 (Center)  | Vol: %.0f%%   ", volume_scale * 100.0f); fflush(stdout);
             } else if (ch == '+' || ch == '=') {
                 volume_scale += 0.05f; if (volume_scale > 1.0f) volume_scale = 1.0f;
-                printf("\r[MIXER] Volume: %.0f%%   ", volume_scale * 100.0f); fflush(stdout);
+                printf("\r[MIXER] Panning: %.1f           | Vol: %.0f%%   ", balance_panning, volume_scale * 100.0f); fflush(stdout);
             } else if (ch == '-') {
                 volume_scale -= 0.05f; if (volume_scale < 0.0f) volume_scale = 0.0f;
-                printf("\r[MIXER] Volume: %.0f%%   ", volume_scale * 100.0f); fflush(stdout);
+                printf("\r[MIXER] Panning: %.1f           | Vol: %.0f%%   ", balance_panning, volume_scale * 100.0f); fflush(stdout);
             } else if (ch == 'q' || ch == 'Q') {
                 break;
             }
         }
 
-        /* Step 3: Stream Audio Blocks */
+        /* Part C: Real-Time Dual-Channel Audio Streaming & DSP */
         size_t samples_to_read = BUFFER_SIZE * header.num_channels;
         size_t samples_read = fread(audio_buffer, sizeof(int16_t), samples_to_read, wav_file);
 
-        // Auto-advance playlist when song ends naturally
+        // Track completion -> auto advance pipeline sequence
         if (samples_read == 0) {
-            printf("\n[MEDIA] Song complete. Auto-advancing playlist pipeline...\n");
             current_track_index = (current_track_index + 1) % TOTAL_TRACKS;
             track_changed_flag = 1;
             continue;
         }
 
-        // DSP Volume Scalar pass
-        for (size_t i = 0; i < samples_read; i++) {
-            audio_buffer[i] = (int16_t)(audio_buffer[i] * volume_scale);
+        /* --- INTEGRATED MULTI-CHANNEL DSP MATRIX --- */
+        float left_gain  = (balance_panning <= 0.0f) ? 1.0f : (1.0f - balance_panning);
+        float right_gain = (balance_panning >= 0.0f) ? 1.0f : (1.0f + balance_panning);
+
+        float final_left_scaler  = volume_scale * left_gain;
+        float final_right_scaler = volume_scale * right_gain;
+
+        if (header.num_channels == 2) {
+            for (size_t i = 0; i < samples_read; i += 2) {
+                audio_buffer[i]     = (int16_t)(audio_buffer[i]     * final_left_scaler);  // Left Channel
+                audio_buffer[i + 1] = (int16_t)(audio_buffer[i + 1] * final_right_scaler); // Right Channel
+            }
+        } else {
+            // Fallback attenuation loop context for mono structures
+            for (size_t i = 0; i < samples_read; i++) {
+                audio_buffer[i] = (int16_t)(audio_buffer[i] * volume_scale);
+            }
         }
 
         int frames_to_write = samples_read / header.num_channels;
