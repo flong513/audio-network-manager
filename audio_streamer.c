@@ -59,25 +59,37 @@ int kbhit() {
 }
 
 /* Dynamic Hardware Provisioning Handler */
+// Pulse code modulation = digital audio format that represents audio as a stream of bits
 snd_pcm_t* init_audio_device(uint32_t sample_rate, uint16_t channels) {
     int rc; snd_pcm_t *handle; snd_pcm_hw_params_t *params;
     unsigned int val = sample_rate; int dir = 0;
 
+    // open the pcm device for playback
     rc = snd_pcm_open(&handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
     if (rc < 0) return NULL;
 
+    // allocate hardware parameters struct
     snd_pcm_hw_params_alloca(&params);
+    // initialize the parameters with default values
     snd_pcm_hw_params_any(handle, params);
+    // configure the pcm device for interleaved access, eg stereo audio
     snd_pcm_hw_params_set_access(handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
+    // configure the pcm device for 16-bit little endian format
     snd_pcm_hw_params_set_format(handle, params, SND_PCM_FORMAT_S16_LE);
+    // configure the pcm device for the number of channels
     snd_pcm_hw_params_set_channels(handle, params, channels);
+    // set the sample rate
     snd_pcm_hw_params_set_rate_near(handle, params, &val, &dir);
 
     snd_pcm_uframes_t buffer_frames = BUFFER_SIZE * 4;
     snd_pcm_uframes_t period_frames = BUFFER_SIZE;
+
+    // set the buffer size
     snd_pcm_hw_params_set_buffer_size_near(handle, params, &buffer_frames);
+    // set the period size
     snd_pcm_hw_params_set_period_size_near(handle, params, &period_frames, &dir);
 
+    // set the hardware parameters
     rc = snd_pcm_hw_params(handle, params);
     if (rc < 0) { snd_pcm_close(handle); return NULL; }
     return handle;
@@ -157,6 +169,7 @@ int main() {
 
         /* Part C: Real-Time Dual-Channel Audio Streaming & DSP */
         size_t samples_to_read = BUFFER_SIZE * header.num_channels;
+
         size_t samples_read = fread(audio_buffer, sizeof(int16_t), samples_to_read, wav_file);
 
         // Track completion -> auto advance pipeline sequence
